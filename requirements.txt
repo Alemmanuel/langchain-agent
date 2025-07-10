@@ -1,0 +1,10 @@
+langchain
+faiss-cpu
+transformers
+sentence-transformers
+openai
+requests
+google-generativeai
+google-ai-generativelanguage
+langchain-google-genai
+langchain_community

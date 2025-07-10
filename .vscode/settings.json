@@ -1,0 +1,6 @@
+{
+    "python.analysis.extraPaths": [
+        "./3_",
+        "./3_"
+    ]
+}
