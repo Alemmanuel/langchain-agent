@@ -1,72 +1,64 @@
 import os
 from dotenv import load_dotenv
 
-from langchain.agents import initialize_agent, AgentType
-from langchain_community.agent_toolkits import SQLDatabaseToolkit
-from langchain_community.utilities import SQLDatabase
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import initialize_agent, Tool, AgentType
+from langchain.chains import RetrievalQA, create_sql_query_chain
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQA
-from langchain.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.utilities import SQLDatabase
 
-from tools import tools
+from tools import rick_and_morty_tool, saludar
 
-# ---------------------- Cargar variables de entorno ----------------------
+# 1. Cargar credenciales
 load_dotenv()
-google_api_key = os.getenv("GOOGLE_API_KEY")
-if not google_api_key:
-    raise ValueError("❌ Falta GOOGLE_API_KEY en el archivo .env")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# ---------------------- Configurar paths absolutos ----------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VECTORSTORE_PATH = os.path.join(BASE_DIR, "vectorstore_index")
-SQLITE_PATH = f"sqlite:///{os.path.join(BASE_DIR, 'demo.db')}"
-
-# ---------------------- Modelo Gemini ----------------------
+# 2. LLM
 llm = ChatGoogleGenerativeAI(
     model="models/gemini-1.5-flash",
-    google_api_key=google_api_key,
-    temperature=0.3
+    temperature=0.3,
+    google_api_key=GOOGLE_API_KEY,
 )
 
-# ---------------------- Vectorstore: FAISS ----------------------
+# 3. Embeddings y Vectorstore
 embedding_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-vectorstore = FAISS.load_local(
-    VECTORSTORE_PATH,
-    embedding_model,
-    allow_dangerous_deserialization=True
-)
+vectorstore = FAISS.load_local("vectorstore_index", embedding_model, allow_dangerous_deserialization=True)
 retriever = vectorstore.as_retriever()
-qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+vector_qa = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-@tool
-def ask_vectorstore(query: str) -> str:
-    """Consulta información semántica en la base vectorial."""
-    return qa_chain.invoke(query)
+# 4. SQL
+db = SQLDatabase.from_uri("sqlite:///demo.db")
+sql_chain = create_sql_query_chain(llm, db)
 
-# ---------------------- Base de datos SQL ----------------------
-db = SQLDatabase.from_uri(SQLITE_PATH)
-toolkit = SQLDatabaseToolkit(db=db, llm=llm)
+# 5. Herramientas
+tools = [
+    Tool(
+        name="vector_qa",
+        description="Busca información en la base vectorial.",
+        func=lambda q: vector_qa.invoke({"query": q})
+    ),
+    Tool(
+        name="sql_chain",
+        description="Realiza consultas SQL sobre empleados.",
+        func=lambda q: sql_chain.invoke({"question": q})
+    ),
+    Tool(
+        name="rick_and_morty_tool",
+        description="Devuelve los datos de un personaje de Rick and Morty por ID.",
+        func=rick_and_morty_tool
+    ),
+    Tool(
+        name="saludar",
+        description="Saluda a una persona por su nombre.",
+        func=saludar
+    )
+]
 
-# ---------------------- Inicializar agente multifuente ----------------------
+# 6. Agente
 agent = initialize_agent(
-    tools=tools + [ask_vectorstore] + toolkit.get_tools(),
+    tools=tools,
     llm=llm,
-    agent=AgentType.OPENAI_FUNCTIONS,
+    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
     verbose=True
 )
-
-# ---------------------- Interfaz CLI ----------------------
-if __name__ == "__main__":
-    print("🤖 Agente con Gemini listo. Escribe tu pregunta. Escribe 'salir' para terminar.")
-    while True:
-        user_input = input("👉 Tú: ")
-        if user_input.lower() in ["salir", "exit", "quit"]:
-            print("👋 Hasta luego, The Special One.")
-            break
-        try:
-            response = agent.invoke({"input": user_input})
-            print("🤖 Agente:", response["output"])
-        except Exception as e:
-            print("❌ Error:", str(e))
