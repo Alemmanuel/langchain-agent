@@ -62,3 +62,7 @@ agent = initialize_agent(
     agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
     verbose=True
 )
+
+agent.llm = llm  # Aseguramos que el agente use el LLM configurado
+agent.vectorstore = vectorstore  # Añadimos el vectorstore al agente
+agent.sql_chain = sql_chain  # Añadimos la cadena SQL al agente

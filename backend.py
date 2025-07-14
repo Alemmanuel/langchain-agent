@@ -38,4 +38,6 @@ async def root():
 @app.get("/app.js")
 async def get_js():
     return FileResponse("app.js", media_type="application/javascript")
-
+@app.get("/style.css")
+async def get_css():
+    return FileResponse("style.css", media_type="text/css")
